@@ -1,5 +1,7 @@
 #include "tasksys.h"
-
+#include <thread>
+#include <vector>
+#include <iostream>
 
 IRunnable::~IRunnable() {}
 
@@ -48,13 +50,17 @@ const char* TaskSystemParallelSpawn::name() {
     return "Parallel + Always Spawn";
 }
 
-TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(num_threads) {
+TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): 
+    ITaskSystem(num_threads),
+    num_threads(num_threads)
+{
     //
     // TODO: CS149 student implementations may decide to perform setup
     // operations (such as thread pool construction) here.
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+
 }
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
@@ -68,9 +74,26 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    std::vector<std::thread> t;
+
+#if(0) 
+/*
+    Idiot implementation. Static assignment
+*/
+    for (int i = 0; i < num_total_tasks; i += num_threads) {
+        for (int j = 0; j < num_threads && i + j < num_total_tasks; j++) {
+            t.emplace_back([&, i, j]() {    // ensure i, j are captured when the lambda expression(thread) is *initialized*
+                runnable->runTask(i + j, num_total_tasks);
+            });
+        }
+        for (auto &c: t) {
+            c.join();
+        }
+        t.clear();
     }
+#else
+    
+#endif
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
