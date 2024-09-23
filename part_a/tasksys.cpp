@@ -74,12 +74,11 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // tasks sequentially on the calling thread.
     //
 
-    std::vector<std::thread> t;
 
-#if(0) 
 /*
     Idiot implementation. Static assignment
 */
+    std::vector<std::thread> t;
     for (int i = 0; i < num_total_tasks; i += num_threads) {
         for (int j = 0; j < num_threads && i + j < num_total_tasks; j++) {
             t.emplace_back([&, i, j]() {    // ensure i, j are captured when the lambda expression(thread) is *initialized*
@@ -91,9 +90,6 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
         }
         t.clear();
     }
-#else
-    
-#endif
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
