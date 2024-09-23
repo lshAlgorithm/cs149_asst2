@@ -1,5 +1,4 @@
 #include "tasksys.h"
-#include <thread>
 #include <vector>
 #include <iostream>
 
@@ -90,6 +89,7 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
         }
         t.clear();
     }
+    // Q: Where and when is the thread literally launched?
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
@@ -113,16 +113,24 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
     return "Parallel + Thread Pool + Spin";
 }
 
-TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
+TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): 
+    ITaskSystem(num_threads),
+    num_threads(num_threads) {
     //
     // TODO: CS149 student implementations may decide to perform setup
     // operations (such as thread pool construction) here.
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+
+    threadPool = new std::thread[num_threads];
+    thread_stat = new ThreadState(num_threads);
 }
 
-TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
+TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    delete thread_stat;
+    delete []threadPool;
+}
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
 
@@ -133,8 +141,24 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    for (int i = 0; i < num_threads; i++) {
+        threadPool[i] = std::thread([&]() {
+            thread_stat->mutex_->lock();
+            while (finished_tasks < num_total_tasks) {
+                int to_do = finished_tasks;
+                finished_tasks++;
+                thread_stat->mutex_->unlock();
+
+                runnable->runTask(to_do, num_total_tasks);
+                
+                thread_stat->mutex_->lock();
+            }
+            thread_stat->mutex_->unlock();
+        });
+    }
+
+    for (int i = 0; i < num_threads; i++) {
+        threadPool[i].join();
     }
 }
 

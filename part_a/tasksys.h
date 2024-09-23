@@ -3,6 +3,32 @@
 
 #include "itasksys.h"
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
+
+/*
+ * Wrapper class around a counter, a condition variable, and a mutex.
+ */
+class ThreadState {
+    public:
+        std::condition_variable* condition_variable_;
+        std::mutex* mutex_;
+        int counter_;
+        int num_waiting_threads_;
+        ThreadState(int num_waiting_threads) {
+            condition_variable_ = new std::condition_variable();
+            mutex_ = new std::mutex();
+            counter_ = 0;
+            num_waiting_threads_ = num_waiting_threads;
+        }
+        ~ThreadState() {
+            delete condition_variable_;
+            delete mutex_;
+        }
+};
+
 /*
  * TaskSystemSerial: This class is the student's implementation of a
  * serial task execution engine.  See definition of ITaskSystem in
@@ -53,6 +79,11 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    private:
+        int num_threads;
+        int finished_tasks = 0;
+        std::thread* threadPool;
+        ThreadState* thread_stat;
 };
 
 /*
