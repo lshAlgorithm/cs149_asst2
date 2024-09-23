@@ -141,6 +141,9 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
+/*
+    Seems not meet the spinning demand, but I think it performs good.
+*/
     for (int i = 0; i < num_threads; i++) {
         threadPool[i] = std::thread([&]() {
             thread_stat->mutex_->lock();
@@ -150,7 +153,7 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
                 thread_stat->mutex_->unlock();
 
                 runnable->runTask(to_do, num_total_tasks);
-                
+
                 thread_stat->mutex_->lock();
             }
             thread_stat->mutex_->unlock();
