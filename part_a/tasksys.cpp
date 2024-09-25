@@ -202,12 +202,16 @@ TaskState::TaskState():
     this->mutex_ = new std::mutex();
     this->finishAll_ = new std::condition_variable();
     this->finishMutex_ = new std::mutex();
+    this->nextMission_ = new std::condition_variable();
+    this->idleMutex_ = new std::mutex();
 }
 
 TaskState::~TaskState() {
     delete mutex_;
     delete finishAll_;
     delete finishMutex_;
+    delete nextMission_;
+    delete idleMutex_;
 }
 
 const char* TaskSystemParallelThreadPoolSleeping::name() {
@@ -244,6 +248,10 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     //
 
     killed_ = true;     // only main thread can modify the value.
+    // for (int i = 0; i < num_threads_; i++) {
+    //     task_stat_->nextMission_->notify_one();
+    // }
+    task_stat_->nextMission_->notify_all();
     for (int i = 0; i < num_threads_; i++) {
         threadPool_[i].join();
     }
@@ -307,7 +315,7 @@ void TaskSystemParallelThreadPoolSleeping::spinThread() {
 }
 #else
 void TaskSystemParallelThreadPoolSleeping::spinThread() {
-    int num_finish, total;
+    int to_do, total;
     while (true) {
         if (killed_) 
             break;
@@ -317,15 +325,15 @@ void TaskSystemParallelThreadPoolSleeping::spinThread() {
         t.mutex_->lock();
 
         total = t.num_total_task_;
-        num_finish = t.task_distribute_;
+        to_do = t.task_distribute_;
 
         if (t.task_distribute_ < total) 
             t.task_distribute_++; 
 
         t.mutex_->unlock();
 
-        if (num_finish < total) {
-            t.runnable_->runTask(num_finish, total);
+        if (to_do < total) {
+            t.runnable_->runTask(to_do, total);
 
 
             t.mutex_->lock();
@@ -352,9 +360,12 @@ void TaskSystemParallelThreadPoolSleeping::spinThread() {
                 t.mutex_->unlock();
             }
 
-            
+
         } else {
             // Sleep...
+            std::unique_lock<std::mutex> sl(*(t.idleMutex_));   // Acquire the mutex
+            t.nextMission_->wait(sl);                           // condvar needs to be notified first. Then try to get the mutex, otherwise get stuck.
+            sl.unlock();
         }
 
     }
@@ -370,8 +381,9 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     //
 
     // Sleep the idle main thread
-
+    // Get the mutex right now!
     std::unique_lock<std::mutex> lk(*(task_stat_->finishMutex_));
+
     task_stat_->mutex_->lock();
     task_stat_->done_ = 0;
     task_stat_->task_distribute_ = 0;
@@ -379,10 +391,15 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     task_stat_->runnable_ = runnable;
     task_stat_->mutex_->unlock();
 
+    /* We don't need it now. */
+    // task_stat_->idleMutex_->lock();  
+    // task_stat_->idleMutex_->unlock();
+    task_stat_->nextMission_->notify_all();
+
 
     task_stat_->finishAll_->wait(lk);
     lk.unlock();
-    // Q: Which thread runs you? At least three threads work on this func. See in test.h:553
+    // Q: Which thread runs you? Main thread, and is run sequentially multiple times. See in test.h:553
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,

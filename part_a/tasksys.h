@@ -41,6 +41,8 @@ class TaskState {
         IRunnable* runnable_;
         std::mutex* mutex_;
         std::condition_variable* finishAll_;
+        std::condition_variable* nextMission_;
+        std::mutex* idleMutex_;
         std::mutex* finishMutex_;
 };
 
