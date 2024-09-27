@@ -165,6 +165,9 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     delete _finished;
 }
 
+/*
+    Brilliant override
+*/
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
     std::vector<TaskID> noDeps;
     runAsyncWithDeps(runnable, num_total_tasks, noDeps);
@@ -181,7 +184,7 @@ void TaskSystemParallelThreadPoolSleeping::workerThread() {
             _waiting_queue_mutex->lock();
             while (!_waiting_queue.empty()) {
                 auto& nextTask = _waiting_queue.top();
-                if (nextTask._depend_TaskID > _finished_TaskID) break;
+                if (nextTask._depend_TaskID > _finished_TaskID) break;                                          // Check finished_TaskID here
                 _ready_queue.push(ReadyTask(nextTask._id, nextTask._runnable, nextTask._num_total_tasks));
                 _task_Process.insert({nextTask._id, {0, nextTask._num_total_tasks}});
                 _waiting_queue.pop();
@@ -207,7 +210,7 @@ void TaskSystemParallelThreadPoolSleeping::workerThread() {
             finished++;
             if (finished == total) {
                 _task_Process.erase(task._id);
-                _finished_TaskID = std::max(task._id, _finished_TaskID);
+                _finished_TaskID = std::max(task._id, _finished_TaskID);                                        // _finished_TaskID is the most important signal! Update here.
             }
             _meta_data_mutex->unlock();
         }

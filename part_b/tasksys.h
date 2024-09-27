@@ -105,7 +105,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::map<TaskID, std::pair<int, int> > _task_Process;
         std::mutex* _meta_data_mutex; // protect _task_Process and _finished_TaskID
 
-        // task in the waiting queue with _depend_TaskID <= _finished_TaskID can be pushed into ready queue
+        // task in the waiting queue with _depend_TaskID <= _finished_TaskID can be pushed into ready queue         // Good standard
         TaskID _finished_TaskID;         
         // wait/notify syn() thread
         std::condition_variable* _finished;
@@ -122,7 +122,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::thread* _threads_pool;
 
         // waiting task queue
-        std::priority_queue<WaitingTask, std::vector<WaitingTask> > _waiting_queue;
+        std::priority_queue<WaitingTask, std::vector<WaitingTask> > _waiting_queue;             // Decent data structure to solve the dependency
         std::mutex* _waiting_queue_mutex;
 
         // ready task queue
