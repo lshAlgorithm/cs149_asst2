@@ -13,3 +13,8 @@ void safeCerr(const std::string& msg) {
     * notify_all() 被调用：
         调用 notify_all() 将会唤醒所有正在等待该条件变量的线程。即使之后有新的线程开始等待，它们也不会被之前的 notify_all() 影响，除非再次调用 notify_all() 或足够次数的 notify_one()。
 3. Before wake up, make sure the process before wait is done. Using `lock.lock(); lock.unlock();`
+4. Process, thread, OpenMP, MPI:
+   * OpenMP use more cores(if not hyperthreading) to spawn threads from a process in one node. 
+   * MPI(Message Passing Interface) uses cores to create processes total to the demand. It launch one process per core, no matter it is on one node or many. But one node need less cost in communication.
+     * I think MPI cares only about the process rather than node, use `MPI_rev`, etc. to communicate between processes.
+  > Therefore, you'd better let `(process in MPI) * (threads in OMP) == core number`.
