@@ -8,7 +8,7 @@
 #include <condition_variable>
 #include <semaphore>
 #include <queue>
-#include <unordered_set>
+#include <map>
 #include <iostream>
 
 /*
@@ -63,81 +63,83 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 };
 
 /*
-    Core data structure, recording all the details of a mission. 
-    Subtask just points to it.
-*/
-class TaskState {
-    public:
-        TaskState();
-        TaskState(TaskID task_id, IRunnable* runnable, int num_total_task, const std::vector<TaskID>& deps);
-        ~TaskState();
-        std::mutex* mutex_; // lock done_, task_distribute_, runnable, num_total_task_
-        TaskID task_id_;
-        int done_;
-        int num_total_task_;
-        int task_distribute_;
-        IRunnable* runnable_;
-
-        // new feature
-        std::vector<int> task_dep_;
+ * WaitingTask
+ */
+struct WaitingTask {
+    TaskID _id; // the TaskID of this task
+    TaskID _depend_TaskID; // the maximum TaskID of this task's dependencies
+    IRunnable* _runnable; // the bulk task
+    int _num_total_tasks;
+    WaitingTask(TaskID id, TaskID dependency, IRunnable* runnable, int num_total_tasks):_id{id}, _depend_TaskID{dependency}, _runnable{runnable}, _num_total_tasks{num_total_tasks}{};
+    bool operator<(const WaitingTask& other) const {
+        return _depend_TaskID > other._depend_TaskID;
+    }
 };
 
-class TaskQueue {
-    public:
-        TaskQueue();
-        ~TaskQueue();
-
-        std::mutex* queMutex_;
-        std::queue<TaskState>* que_;
-        std::condition_variable* haveOne_;
-        std::condition_variable* empty_;
-        std::mutex* emptyMutex_;
+/*
+ * Ready Task
+ */
+struct ReadyTask {
+    TaskID _id;
+    IRunnable* _runnable;
+    int _current_task;
+    int _num_total_tasks;
+    ReadyTask(TaskID id, IRunnable* runnable, int num_total_tasks):_id(id), _runnable(runnable), _current_task{0}, _num_total_tasks(num_total_tasks) {}
+    ReadyTask(){}
 };
 
-class Subtask {
-    public:
-        Subtask(TaskState* task, int id);
-        ~Subtask();
 
-        int subtaskID_;
-        TaskState* whole_task_;    // Directly point to the task itself, pay attention to mutex
-};
-
-class SubtaskBuffer {
-    public:
-        SubtaskBuffer();
-        ~SubtaskBuffer();
-
-        std::mutex* readyMutex_;
-        std::condition_variable* empty_;
-        std::mutex* emptyMutex_;
-        std::queue<Subtask>* buffer_;
-};
 /*
  * TaskSystemParallelThreadPoolSleeping: This class is the student's
  * optimized implementation of a parallel task execution engine that uses
  * a thread pool. See definition of ITaskSystem in
  * itasksys.h for documentation of the ITaskSystem interface.
  */
+
 class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
+    private:
+        // the maximum number of workerThread this TaskSystem can use
+        int _num_Threads;
+
+        // record the process of tasks which are in executing
+        std::map<TaskID, std::pair<int, int> > _task_Process;
+        std::mutex* _meta_data_mutex; // protect _task_Process and _finished_TaskID
+
+        // task in the waiting queue with _depend_TaskID <= _finished_TaskID can be pushed into ready queue
+        TaskID _finished_TaskID;         
+        // wait/notify syn() thread
+        std::condition_variable* _finished;
+
+
+
+        // the next call to run or runAsyncWithDeps with get this TaskID back
+        TaskID _next_TaskID;         
+
+        // notify workerThreads to kill themselves
+        bool _killed;         
+        
+        // worker thread pool
+        std::thread* _threads_pool;
+
+        // waiting task queue
+        std::priority_queue<WaitingTask, std::vector<WaitingTask> > _waiting_queue;
+        std::mutex* _waiting_queue_mutex;
+
+        // ready task queue
+        std::queue<ReadyTask> _ready_queue;
+        std::mutex* _ready_queue_mutex;
+
+
     public:
         TaskSystemParallelThreadPoolSleeping(int num_threads);
         ~TaskSystemParallelThreadPoolSleeping();
         const char* name();
+        void workerThread();
         void run(IRunnable* runnable, int num_total_tasks);
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
-        void Run();
-        void sleepThread();
-    private:
-        bool killed_;
-        int num_threads_;
-        TaskQueue* waiting_que_;
-        SubtaskBuffer* ready_que_;
-        std::unordered_set<TaskID>* finish_set_;
-        std::thread* threadPool_;
-        std::condition_variable* nextMission_;
 };
+
 
 #endif
