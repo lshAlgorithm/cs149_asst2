@@ -87,35 +87,7 @@ class TaskSystemParallelSpawn: public ITaskSystem {
  * thread pool. See definition of ITaskSystem in itasksys.h for
  * documentation of the ITaskSystem interface.
  */
-#ifndef LSH
-class task_info_ThreadPoolSpinning {
-    public:
-        IRunnable *runnable;
-        int num_total_tasks;
-        int index = 0;
-        int finished = 0;
-        std::mutex mmutex;
-};
-class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
-    public:
-        TaskSystemParallelThreadPoolSpinning(int num_threads);
-        ~TaskSystemParallelThreadPoolSpinning();
-        const char* name();
-        void run(IRunnable* runnable, int num_total_tasks);
-        TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
-                                const std::vector<TaskID>& deps);
-        void sync();
-        void thread_func();
-    private:
-        std::vector<std::thread> thread_pool;
-        task_info_ThreadPoolSpinning *task_info_ptr;
-        struct {
-            bool have_task = false;
-            bool killed = false;
-            std::mutex mmutex;
-        }thread_state;
-};
-#else
+
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     public:
         TaskSystemParallelThreadPoolSpinning(int num_threads);
@@ -130,7 +102,6 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         int num_threads;
         std::thread* threadPool;
 };
-#endif
 
 /*
  * TaskSystemParallelThreadPoolSleeping: This class is the student's
