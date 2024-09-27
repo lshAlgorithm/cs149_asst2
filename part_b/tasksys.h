@@ -6,6 +6,7 @@
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <semaphore>
 #include <queue>
 #include <unordered_set>
 #include <iostream>
@@ -89,6 +90,8 @@ class TaskQueue {
         std::mutex* queMutex_;
         std::queue<TaskState>* que_;
         std::condition_variable* haveOne_;
+        std::condition_variable* empty_;
+        std::mutex* emptyMutex_;
 };
 
 class Subtask {
@@ -108,7 +111,7 @@ class SubtaskBuffer {
         std::mutex* readyMutex_;
         std::condition_variable* empty_;
         std::mutex* emptyMutex_;
-        std::queue<Subtask> buffer_;
+        std::queue<Subtask>* buffer_;
 };
 /*
  * TaskSystemParallelThreadPoolSleeping: This class is the student's

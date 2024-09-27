@@ -142,25 +142,34 @@ TaskState::TaskState(TaskID task_id, IRunnable* runnable, int num_total_task, co
 }
 
 TaskState::~TaskState() {
+    std::cerr << "deconstruct in taskstate\t";
     delete mutex_;
 }
 
-Subtask::Subtask(TaskState* task, int id) {
-    whole_task_ = task;
-    subtaskID_ = id;
-}
+Subtask::Subtask(TaskState* task, int id): 
+                subtaskID_(id), 
+                whole_task_(task) { }
 
-Subtask::~Subtask() {}
+Subtask::~Subtask() {
+    // whole_task_ = nullptr;
+    std::cerr << "deconstruct in subtask\t";
+}
 
 SubtaskBuffer::SubtaskBuffer() {
     readyMutex_ = new std::mutex;
     empty_ = new std::condition_variable;
     emptyMutex_ = new std::mutex;
+    buffer_ = new std::queue<Subtask>;
+    /*
+        One reason to use these queue: Precisely control the lifespan
+    */
 }
 SubtaskBuffer::~SubtaskBuffer() {
+    std::cerr << "deconstruct in buffer\t";
     delete readyMutex_;
     delete empty_;
     delete emptyMutex_;
+    delete buffer_;
 }
 
 TaskQueue::TaskQueue() {
@@ -168,7 +177,8 @@ TaskQueue::TaskQueue() {
     queMutex_ = new std::mutex;
     que_ = new std::queue<TaskState>;
     haveOne_ = new std::condition_variable;
-    // oneMutex_ = new std::mutex;
+    empty_ = new std::condition_variable;
+    emptyMutex_ = new std::mutex;
 }
 
 TaskQueue::~TaskQueue() {
@@ -176,7 +186,8 @@ TaskQueue::~TaskQueue() {
     delete que_;
     delete queMutex_;
     delete haveOne_;
-    // delete oneMutex_;
+    delete empty_;
+    delete emptyMutex_;
 }
 
 const char* TaskSystemParallelThreadPoolSleeping::name() {
@@ -211,6 +222,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // (requiring changes to tasksys.h).
     //
     
+    std::cerr << "Deconstruct of the mission\t";
     killed_ = true;
     nextMission_->notify_all();
     waiting_que_->haveOne_->notify_all();
@@ -237,19 +249,34 @@ void TaskSystemParallelThreadPoolSleeping::sleepThread() {
 
             std::unique_lock<std::mutex> lk(*(ready_que_->readyMutex_));
 
-            if (ready_que_->buffer_.empty()) {
+            if (ready_que_->buffer_->empty()) {
                 ready_que_->empty_->notify_all();
                 // Sleep...
+                std::cerr << "sleep in sleep\t";
                 nextMission_->wait(lk);
+                std::cerr << "wake up in sleep\t";
+
+                if (ready_que_->buffer_->empty()) {
+                    lk.unlock();
+                    if (killed_) break;
+                    continue;
+                } 
             }
 
-            if (killed_) break;
-
-            Subtask &t = ready_que_->buffer_.front();
-            ready_que_->buffer_.pop();
+            if (killed_) {
+                lk.unlock();
+                break;
+            }
+            
+            Subtask t = ready_que_->buffer_->front();
+            // std::cerr << "Can you access?" << t << '\t';
+            ready_que_->buffer_->pop();
             lk.unlock();
 
+            std::cerr << "GOING TO SOLVE in sleep\t";
             t.whole_task_->mutex_->lock();
+            std::cerr << "WTF? Can anyone help me?\t";
+            std::cerr << "I run id = " << t.subtaskID_ << ", tot = " << t.whole_task_->num_total_task_ << '\t';
             t.whole_task_->runnable_->runTask(t.subtaskID_, t.whole_task_->num_total_task_);
             t.whole_task_->done_++;
             if (t.whole_task_->done_ == t.whole_task_->num_total_task_) {
@@ -288,29 +315,40 @@ void TaskSystemParallelThreadPoolSleeping::Run() {
         
         TaskQueue &w = *waiting_que_;
         std::unique_lock<std::mutex> lk(*(w.queMutex_));
+
         if (w.que_->empty()) {
+            w.empty_->notify_all();
             // sleep...
-            lk.unlock();
-            w.haveOne_->wait(lk);
+            // lk.unlock();
+
+            std::cerr << "Run()DEBUG=== I go to sleep when waiting is empty\t";
+            w.haveOne_->wait(lk);   // Only one thread is sleep and waken, you can use *semaphore*
+            std::cerr << "Run()DEBUG=== Someone wake me up. THX\t";
+
             if(killed_) {
                 lk.unlock();
                 break;
             }
         }
-        TaskState& newTask = w.que_->front();
+
+        // std::unique_lock<std::mutex> lk(*(w.queMutex_));
+        std::cerr << "Run()DEBUG=== I am going to check the task dependency, and the que size is :" << w.que_->size() << "\t";
+        TaskState newTask = w.que_->front();
         w.que_->pop();
         fl = true;
+        std::cerr << "Run()DEBUG===You get false before the loop?\t";
         for (auto c: newTask.task_dep_) {
-            if (finish_set_->find(c) != finish_set_->end()) {
+            if (finish_set_->find(c) == finish_set_->end()) {
                 fl = false;
                 w.que_->push(newTask);
             }
         }
         lk.unlock();
+
         if (fl == false) {
             continue;
         }
-
+        std::cerr << "Run()DEBUG=== Check finished, I have a task to go\t";
         /* 
             There should only be one task_stat at all time...
             No! Every task has its own task_stat_, bound with a taskID.
@@ -318,16 +356,14 @@ void TaskSystemParallelThreadPoolSleeping::Run() {
 
         SubtaskBuffer &r = *ready_que_;
         r.readyMutex_->lock();
+        std::cerr << "Run()DEBUG=== Ready to push the task\t";
         for (int i = 0; i < newTask.num_total_task_; i++) {
             Subtask subtask = Subtask(&newTask, i);
-            r.buffer_.emplace(subtask);
+            r.buffer_->emplace(subtask);
         }
+        std::cerr << "Run()DEBUG=== I wake you up, sleepy thread!!!\t";
+        nextMission_->notify_all();
         r.readyMutex_->unlock();
-        nextMission_->notify_all(); // wait and see...
-
-        /* We don't need it now. */
-        // task_stat_->idleMutex_->lock();  
-        // task_stat_->idleMutex_->unlock();
     }
 }
 
@@ -345,13 +381,12 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     TaskID new_task_id = id++;
 
     // You can make it a unique_ptr for better performance
+    std::cerr << "new big task id is " << new_task_id << '\t';
     TaskState new_task = TaskState(new_task_id, runnable, num_total_tasks, deps);
     waiting_que_->que_->push(new_task);
 
     // wake up Run()
-    if (waiting_que_->que_->size() == 1) {
-        waiting_que_->haveOne_->notify_all();
-    }
+    waiting_que_->haveOne_->notify_all();
 
     waiting_que_->queMutex_->unlock();
 
@@ -366,9 +401,17 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
     
     // Plan: sleep until the threads to complete
+
+    std::unique_lock<std::mutex> wait(*(waiting_que_->emptyMutex_));  // You actually don't need the lock...
+    if (!waiting_que_->que_->empty()) {
+        waiting_que_->empty_->wait(wait);
+    }
+    wait.unlock();
+
     std::unique_lock<std::mutex> lk(*(ready_que_->emptyMutex_));
-    if (ready_que_->buffer_.empty()) 
-        return ;
+    if (ready_que_->buffer_->empty()) {
+        return ;        // I believe you unlock it
+    }
     else {
         ready_que_->empty_->wait(lk);
         lk.unlock();
