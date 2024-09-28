@@ -2,14 +2,11 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
-
-#include <mutex>
-#include <thread>
-#include <condition_variable>
-#include <semaphore>
+#include <vector>
 #include <queue>
-#include <map>
-#include <iostream>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -44,7 +41,6 @@ class TaskSystemParallelSpawn: public ITaskSystem {
         void sync();
 };
 
-
 /*
  * TaskSystemParallelThreadPoolSpinning: This class is the student's
  * implementation of a parallel task execution engine that uses a
@@ -63,83 +59,80 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 };
 
 /*
- * WaitingTask
- */
-struct WaitingTask {
-    TaskID _id; // the TaskID of this task
-    TaskID _depend_TaskID; // the maximum TaskID of this task's dependencies
-    IRunnable* _runnable; // the bulk task
-    int _num_total_tasks;
-    WaitingTask(TaskID id, TaskID dependency, IRunnable* runnable, int num_total_tasks):_id{id}, _depend_TaskID{dependency}, _runnable{runnable}, _num_total_tasks{num_total_tasks}{};
-    bool operator<(const WaitingTask& other) const {
-        return _depend_TaskID > other._depend_TaskID;
-    }
-};
-
-/*
- * Ready Task
- */
-struct ReadyTask {
-    TaskID _id;
-    IRunnable* _runnable;
-    int _current_task;
-    int _num_total_tasks;
-    ReadyTask(TaskID id, IRunnable* runnable, int num_total_tasks):_id(id), _runnable(runnable), _current_task{0}, _num_total_tasks(num_total_tasks) {}
-    ReadyTask(){}
-};
-
-
-/*
  * TaskSystemParallelThreadPoolSleeping: This class is the student's
  * optimized implementation of a parallel task execution engine that uses
  * a thread pool. See definition of ITaskSystem in
  * itasksys.h for documentation of the ITaskSystem interface.
  */
+struct JobInfo {
+    IRunnable* runnable;
+    int num_total_tasks;
+    int num_finished_tasks;
+    int num_deps;
+    bool is_finished;
+};
+
+class DispatchInfo {
+    public:
+        DispatchInfo() : next_id{}, num_finished_job{} {}
+        std::vector<std::vector<TaskID>> graph;
+        std::vector<JobInfo> job_info_table;
+        int next_id;
+        int num_finished_job;
+        std::mutex mmutex;
+};
+
+class TaskDe {
+    public:
+        TaskID job_id;
+        IRunnable* runnable;
+        int index;
+        int num_total_tasks;
+};
 
 class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
-    private:
-        // the maximum number of workerThread this TaskSystem can use
-        int _num_Threads;
-
-        // record the process of tasks which are in executing
-        std::map<TaskID, std::pair<int, int> > _task_Process;
-        std::mutex* _meta_data_mutex; // protect _task_Process and _finished_TaskID
-
-        // task in the waiting queue with _depend_TaskID <= _finished_TaskID can be pushed into ready queue         // Good standard
-        TaskID _finished_TaskID;         
-        // wait/notify syn() thread
-        std::condition_variable* _finished;
-
-
-
-        // the next call to run or runAsyncWithDeps with get this TaskID back
-        TaskID _next_TaskID;         
-
-        // notify workerThreads to kill themselves
-        bool _killed;         
-        
-        // worker thread pool
-        std::thread* _threads_pool;
-
-        // waiting task queue
-        std::priority_queue<WaitingTask, std::vector<WaitingTask> > _waiting_queue;             // Decent data structure to solve the dependency
-        std::mutex* _waiting_queue_mutex;
-
-        // ready task queue
-        std::queue<ReadyTask> _ready_queue;
-        std::mutex* _ready_queue_mutex;
-
-
     public:
         TaskSystemParallelThreadPoolSleeping(int num_threads);
         ~TaskSystemParallelThreadPoolSleeping();
         const char* name();
-        void workerThread();
         void run(IRunnable* runnable, int num_total_tasks);
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
-};
+        void thread_execute_func();
+        void thread_dispatch_func();
+    private:
+        std::vector<std::thread> thread_pool;
+        //maintain the dispatch info which has DAG, job_info_table and some states.
+        DispatchInfo dispatch_info;
+        //the dispatch_thread dispatch the ready_tasks into the queue,
+        //the execute_thread fetch the task and execute it.
+        struct {
+            std::queue<TaskDe> queue;
+            std::mutex mmutex;
+        }tasks_queue;
+        //the execute_thread send the task_id into the queue,
+        //the dispatch_thread address the task_id and update the corresponding job_info.
+        struct {
+            std::queue<TaskID> queue;
+            std::mutex mmutex;
+        }finished_queue;
+        
+        struct {
+            bool is_finished = false;
+            std::mutex mmutex;
+            inline void set_fin() {
+                mmutex.lock();
+                is_finished = true;
+                mmutex.unlock();
+            }
+        }pool_state;
 
+        struct {
+            bool have_task = false;
+            std::mutex mmutex;
+            std::condition_variable can_running;
+        } exec_thread_state;
+};
 
 #endif
