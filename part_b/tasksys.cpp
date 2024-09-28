@@ -165,7 +165,7 @@ void TaskSystemParallelThreadPoolSleeping::thread_execute_func() {
             std::unique_lock<std::mutex> lk_dispatch_info(dispatch_info.mmutex);
             if(pool_state.is_finished == true and
             dispatch_info.next_id == dispatch_info.num_finished_job) { 
-                return;
+                return;     // automatically drop the mutex
             }
         }
         
@@ -215,7 +215,14 @@ void TaskSystemParallelThreadPoolSleeping::thread_dispatch_func() {
                 return;
             }
         }
+        /*
+            The usage of finished_id to get through the finished task in `finished_queue` is not that decent.
+            Because the individual task don't bear the view of the whole task unless they share a pointer to the whole_task,
+            which is much more like my original implementation, which turns out to be MUCH MUCH more complicated with tons 
+            of pointer bugs (double free included).
 
+            To mend for the limited view of the subtasks, you need more transition of task info.
+        */
         std::vector<TaskID> finished_id;
         {
             //fetch the finished_task_id
@@ -226,6 +233,10 @@ void TaskSystemParallelThreadPoolSleeping::thread_dispatch_func() {
             }
         }
 
+        /*
+            After all, DAG seems to save much time while the tiny upgrade in less info transition is negligible.
+            Don't get stuck in small things, watch something big.
+        */
         std::vector<std::tuple<TaskID, IRunnable*, int>> ready_jobs;
         {
             //update the job_info_table
